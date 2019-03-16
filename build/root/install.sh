@@ -33,7 +33,7 @@ fi
 ####
 
 # define archive packages
-arc_packages="boost-libs~1.60.0-5-x86_64 boost~1.60.0-5-x86_64 libtorrent-rasterbar~1:1.0.9-1-x86_64"
+arc_packages="boost-libs~1.68.0-2-x86_64 boost~1.68.0-2-x86_64 libtorrent-rasterbar~1:1.1.9-2-x86_64"
 
 # call arc script (arch archive repo)
 source /root/arc.sh
