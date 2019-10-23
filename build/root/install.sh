@@ -13,30 +13,21 @@ curl --connect-timeout 5 --max-time 600 --retry 5 --retry-delay 0 --retry-max-ti
 unzip /tmp/scripts-master.zip -d /tmp
 
 # move shell scripts to /root
-mv /tmp/scripts-master/shell/arch/docker/*.sh /root/
+mv /tmp/scripts-master/shell/arch/docker/*.sh /usr/local/bin/
 
 # pacman packages
 ####
 
 # call pacman db and package updater script
-source /root/upd.sh
+source upd.sh
 
 # define pacman packages
-pacman_packages="pygtk python2-service-identity python2-mako python2-notify python2-pillow deluge"
+pacman_packages="libtorrent-rasterbar openssl python-chardet python-dbus python-distro python-geoip python-idna python-mako python-pillow python-pyopenssl python-rencode python-service-identity python-setproctitle python-six python-twisted python-xdg python-zope-interface xdg-utils libappindicator-gtk3 deluge"
 
 # install compiled packages using pacman
 if [[ ! -z "${pacman_packages}" ]]; then
 	pacman -S --needed $pacman_packages --noconfirm
 fi
-
-# archive packages
-####
-
-# define archive packages
-arc_packages="boost-libs~1.68.0-2-x86_64 boost~1.68.0-2-x86_64 libtorrent-rasterbar~1:1.1.9-2-x86_64"
-
-# call arc script (arch archive repo)
-source /root/arc.sh
 
 # aur packages
 ####
@@ -45,7 +36,7 @@ source /root/arc.sh
 aur_packages=""
 
 # call aur install script (arch user repo)
-source /root/aur.sh
+source aur.sh
 
 # tweaks
 ####
@@ -89,21 +80,21 @@ mkdir -p /home/nobody/.cache/Python-Eggs ; chmod -R 755 /home/nobody/.cache/Pyth
 cat <<EOF > /tmp/permissions_heredoc
 
 # get previous puid/pgid (if first run then will be empty string)
-previous_puid=\$(cat "/tmp/puid" 2>/dev/null || true)
-previous_pgid=\$(cat "/tmp/pgid" 2>/dev/null || true)
+previous_puid=\$(cat "/root/puid" 2>/dev/null || true)
+previous_pgid=\$(cat "/root/pgid" 2>/dev/null || true)
 
 # if first run (no puid or pgid files in /tmp) or the PUID or PGID env vars are different 
 # from the previous run then re-apply chown with current PUID and PGID values.
-if [[ ! -f "/tmp/puid" || ! -f "/tmp/pgid" || "\${previous_puid}" != "\${PUID}" || "\${previous_pgid}" != "\${PGID}" ]]; then
+if [[ ! -f "/root/puid" || ! -f "/root/pgid" || "\${previous_puid}" != "\${PUID}" || "\${previous_pgid}" != "\${PGID}" ]]; then
 
 	# set permissions inside container - Do NOT double quote variable for install_paths otherwise this will wrap space separated paths as a single string
 	chown -R "\${PUID}":"\${PGID}" ${install_paths}
 
 fi
 
-# write out current PUID and PGID to files in /tmp (used to compare on next run)
-echo "\${PUID}" > /tmp/puid
-echo "\${PGID}" > /tmp/pgid
+# write out current PUID and PGID to files in /root (used to compare on next run)
+echo "\${PUID}" > /root/puid
+echo "\${PGID}" > /root/pgid
 
 EOF
 
@@ -111,7 +102,7 @@ EOF
 sed -i '/# PERMISSIONS_PLACEHOLDER/{
     s/# PERMISSIONS_PLACEHOLDER//g
     r /tmp/permissions_heredoc
-}' /root/init.sh
+}' /usr/local/bin/init.sh
 rm /tmp/permissions_heredoc
 
 # env vars
@@ -189,7 +180,7 @@ if [[ $VPN_ENABLED == "yes" ]]; then
 	echo "[info] OpenVPN config file (ovpn extension) is located at ${VPN_CONFIG}" | ts '%Y-%m-%d %H:%M:%.S'
 
 	# convert CRLF (windows) to LF (unix) for ovpn
-	/usr/bin/dos2unix "${VPN_CONFIG}" 1> /dev/null
+	/usr/local/bin/dos2unix.sh "${VPN_CONFIG}"
 
 	# get first matching 'remote' line in ovpn
 	vpn_remote_line=$(cat "${VPN_CONFIG}" | grep -P -o -m 1 '^(\s+)?remote\s.*')
@@ -274,8 +265,8 @@ if [[ $VPN_ENABLED == "yes" ]]; then
 	if [[ ! -z "${NAME_SERVERS}" ]]; then
 		echo "[info] NAME_SERVERS defined as '${NAME_SERVERS}'" | ts '%Y-%m-%d %H:%M:%.S'
 	else
-		echo "[warn] NAME_SERVERS not defined (via -e NAME_SERVERS), defaulting to Google and FreeDNS name servers" | ts '%Y-%m-%d %H:%M:%.S'
-		export NAME_SERVERS="8.8.8.8,37.235.1.174,8.8.4.4,37.235.1.177"
+		echo "[warn] NAME_SERVERS not defined (via -e NAME_SERVERS), defaulting to name servers defined in readme.md" | ts '%Y-%m-%d %H:%M:%.S'
+		export NAME_SERVERS="209.222.18.222,84.200.69.80,37.235.1.174,1.1.1.1,209.222.18.218,37.235.1.177,84.200.70.40,1.0.0.1"
 	fi
 
 	if [[ $VPN_PROV != "airvpn" ]]; then
@@ -322,7 +313,7 @@ if [[ $VPN_ENABLED == "yes" ]]; then
 		export ENABLE_PRIVOXY="no"
 	fi
 
-	export RUN_UP_SCRIPT="yes"
+	export APPLICATION="deluge"
 
 fi
 
@@ -332,12 +323,8 @@ EOF
 sed -i '/# ENVVARS_PLACEHOLDER/{
     s/# ENVVARS_PLACEHOLDER//g
     r /tmp/envvars_heredoc
-}' /root/init.sh
+}' /usr/local/bin/init.sh
 rm /tmp/envvars_heredoc
 
 # cleanup
-yes|pacman -Scc
-rm -rf /usr/share/locale/*
-rm -rf /usr/share/man/*
-rm -rf /usr/share/gtk-doc/*
-rm -rf /tmp/*
+cleanup.sh

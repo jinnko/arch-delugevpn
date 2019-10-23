@@ -5,7 +5,7 @@ if [[ "${VPN_PROTOCOL}" == "tcp-client" ]]; then
 	export VPN_PROTOCOL="tcp"
 fi
 
-# identify docker bridge interface name (probably "${docker_interface}")
+# identify docker bridge interface name (probably eth0)
 docker_interface=$(netstat -ie | grep -vE "lo|tun|tap" | sed -n '1!p' | grep -P -o -m 1 '^[^:]+')
 if [[ "${DEBUG}" == "true" ]]; then
 	echo "[debug] Docker interface defined as ${docker_interface}"
@@ -49,7 +49,7 @@ echo "--------------------"
 ip route
 echo "--------------------"
 
-# setup iptables marks to allow routing of defined ports via lan interface
+# setup iptables marks to allow routing of defined ports via lan
 ###
 
 if [[ "${DEBUG}" == "true" ]]; then
@@ -79,9 +79,6 @@ iptables -P INPUT DROP
 
 # set policy to drop ipv6 for input
 ip6tables -P INPUT DROP 1>&- 2>&-
-
-# accept input to tunnel adapter
-iptables -A INPUT -i "${VPN_DEVICE_TYPE}" -j ACCEPT
 
 # accept input to/from docker containers (172.x range is internal dhcp)
 iptables -A INPUT -s "${docker_network_cidr}" -d "${docker_network_cidr}" -j ACCEPT
@@ -115,6 +112,18 @@ iptables -A INPUT -p icmp --icmp-type echo-reply -j ACCEPT
 # accept input to local loopback
 iptables -A INPUT -i lo -j ACCEPT
 
+# accept input to tunnel adapter
+iptables -A INPUT -i "${VPN_DEVICE_TYPE}" -j ACCEPT
+
+# forward iptable rules
+###
+
+# set policy to drop ipv4 for forward
+iptables -P FORWARD DROP
+
+# set policy to drop ipv6 for forward
+ip6tables -P FORWARD DROP 1>&- 2>&-
+
 # output iptable rules
 ###
 
@@ -123,9 +132,6 @@ iptables -P OUTPUT DROP
 
 # set policy to drop ipv6 for output
 ip6tables -P OUTPUT DROP 1>&- 2>&-
-
-# accept output from tunnel adapter
-iptables -A OUTPUT -o "${VPN_DEVICE_TYPE}" -j ACCEPT
 
 # accept output to/from docker containers (172.x range is internal dhcp)
 iptables -A OUTPUT -s "${docker_network_cidr}" -d "${docker_network_cidr}" -j ACCEPT
@@ -168,9 +174,13 @@ iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
 # accept output from local loopback adapter
 iptables -A OUTPUT -o lo -j ACCEPT
 
+# accept output from tunnel adapter
+iptables -A OUTPUT -o "${VPN_DEVICE_TYPE}" -j ACCEPT
+
 echo "[info] iptables defined as follows..."
 echo "--------------------"
-iptables -S
+iptables -S 2>&1 | tee /tmp/getiptables
+chmod +r /tmp/getiptables
 echo "--------------------"
 
 # change iptable 'tcp' to openvpn config compatible 'tcp-client' (this file is sourced)

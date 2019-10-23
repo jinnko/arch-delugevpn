@@ -14,11 +14,20 @@ if [[ ! -f /config/core.conf ]]; then
 fi
 
 # force unix line endings conversion in case user edited core.conf with notepad
-dos2unix /config/core.conf
+/usr/local/bin/dos2unix.sh "/config/core.conf"
 
 # set default values for port and ip
 deluge_port="6890"
 deluge_ip="0.0.0.0"
+
+# define sleep period between loops
+sleep_period_secs=30
+
+# define sleep period between incoming port checks
+sleep_period_incoming_port_secs=1800
+
+# sleep period counter - used to limit number of hits to external website to check incoming port
+sleep_period_counter_secs=0
 
 # while loop to check ip and port
 while true; do
@@ -26,13 +35,15 @@ while true; do
 	# reset triggers to negative values
 	deluge_running="false"
 	deluge_web_running="false"
+	privoxy_running="false"
 	ip_change="false"
-	port_change="false"
+	vpn_port_change="false"
+	deluge_port_change="false"
 
 	if [[ "${VPN_ENABLED}" == "yes" ]]; then
 
-		# run script to check ip is valid for tunnel device (will block until valid)
-		source /home/nobody/getvpnip.sh
+		# run script to get all required info
+		source /home/nobody/preruncheck.sh
 
 		# if vpn_ip is not blank then run, otherwise log warning
 		if [[ ! -z "${vpn_ip}" ]]; then
@@ -69,13 +80,23 @@ while true; do
 
 			fi
 
-			# run scripts to identify external ip address
-			source /home/nobody/getvpnextip.sh
+			if [[ "${ENABLE_PRIVOXY}" == "yes" ]]; then
+
+				# check if privoxy is running, if not then skip shutdown of process
+				if ! pgrep -fa "/usr/bin/privoxy" > /dev/null; then
+
+					echo "[info] Privoxy not running"
+
+				else
+
+					# mark as privoxy as running
+					privoxy_running="true"
+
+				fi
+
+			fi
 
 			if [[ "${VPN_PROV}" == "pia" ]]; then
-
-				# run scripts to identify vpn port
-				source /home/nobody/getvpnport.sh
 
 				# if vpn port is not an integer then dont change port
 				if [[ ! "${VPN_INCOMING_PORT}" =~ ^-?[0-9]+$ ]]; then
@@ -84,21 +105,19 @@ while true; do
 					VPN_INCOMING_PORT="${deluge_port}"
 
 					# ignore port change as we cannot detect new port
-					port_change="false"
+					deluge_port_change="false"
 
 				else
 
 					if [[ "${deluge_running}" == "true" ]]; then
 
-						# run netcat to identify if port still open, use exit code
-						nc_exitcode=$(/usr/bin/nc -z -w 3 "${vpn_ip}" "${deluge_port}")
+						if [ "${sleep_period_counter_secs}" -ge "${sleep_period_incoming_port_secs}" ]; then
 
-						if [[ "${nc_exitcode}" -ne 0 ]]; then
+							# run script to check incoming port is accessible
+							source /home/nobody/checkextport.sh
 
-							echo "[info] Deluge incoming port closed, marking for reconfigure"
-
-							# mark as reconfigure required due to mismatch
-							port_change="true"
+							# reset sleep period counter
+							sleep_period_counter_secs=0
 
 						fi
 
@@ -109,7 +128,7 @@ while true; do
 						echo "[info] Deluge incoming port $deluge_port and VPN incoming port ${VPN_INCOMING_PORT} different, marking for reconfigure"
 
 						# mark as reconfigure required due to mismatch
-						port_change="true"
+						deluge_port_change="true"
 
 					fi
 
@@ -117,10 +136,28 @@ while true; do
 
 			fi
 
-			if [[ "${port_change}" == "true" || "${ip_change}" == "true" || "${deluge_running}" == "false" || "${deluge_web_running}" == "false" ]]; then
+			if [[ "${deluge_port_change}" == "true" || "${ip_change}" == "true" || "${deluge_running}" == "false" || "${deluge_web_running}" == "false" ]]; then
 
 				# run script to start deluge
 				source /home/nobody/deluge.sh
+
+			fi
+
+			# if port is detected as closed then create empty file to trigger restart of openvpn process (restart code in /root/openvpn.sh)
+			if [[ "${vpn_port_change}" == "true" ]];then
+
+				touch "/tmp/portclosed"
+
+			fi
+
+			if [[ "${ENABLE_PRIVOXY}" == "yes" ]]; then
+
+				if [[ "${privoxy_running}" == "false" ]]; then
+
+					# run script to start privoxy
+					source /home/nobody/privoxy.sh
+
+				fi
 
 			fi
 
@@ -154,6 +191,20 @@ while true; do
 
 		fi
 
+		if [[ "${ENABLE_PRIVOXY}" == "yes" ]]; then
+
+			# check if privoxy is running, if not then start via privoxy.sh
+			if ! pgrep -fa "/usr/bin/privoxy" > /dev/null; then
+
+				echo "[info] Privoxy not running"
+
+				# run script to start privoxy
+				source /home/nobody/privoxy.sh
+
+			fi
+
+		fi
+
 		if [[ "${deluge_running}" == "false" || "${deluge_web_running}" == "false" ]]; then
 
 			# run script to start deluge
@@ -177,6 +228,9 @@ while true; do
 
 	fi
 
-	sleep 30s
+	# increment sleep period counter - used to limit number of hits to external website to check incoming port
+	sleep_period_counter_secs=$((sleep_period_counter_secs+"${sleep_period_secs}"))
+
+	sleep "${sleep_period_secs}"s
 
 done
